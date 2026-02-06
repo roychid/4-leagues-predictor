@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Poisson Predictor</title>
+<style>
+body{background:#0b0b0b;color:#eee;font-family:sans-serif;padding:20px}
+.card{background:#111;padding:12px;border-radius:8px;margin-bottom:10px}
+button{background:#00ff00;color:#000;border:none;padding:8px;border-radius:6px;cursor:pointer}
+.prob-bar{display:flex;height:10px;width:100%;background:#222;border-radius:6px;overflow:hidden;margin-top:6px}
+.prob{height:100%}
+</style>
+</head>
+<body>
+<h1>Poisson Predictor - SportMonks</h1>
+
+<div class="card">
+  <label>League</label>
+  <select id="league">
+    <option value="">All</option>
+    <optgroup label="🇩🇰 Denmark">
+      <option value="271">Superliga</option>
+      <option value="1659">Play-offs</option>
+    </optgroup>
+    <optgroup label="🏴 Scotland">
+      <option value="501">Premiership</option>
+      <option value="513">Play-offs</option>
+    </optgroup>
+  </select>
+  <label>Date</label>
+  <input type="date" id="date">
+  <button id="loadBtn">Load Matches</button>
+</div>
+
+<div id="matches"></div>
+
+<script>
+const API_KEY = prompt("Paste your SportMonks API token (for listing fixtures)");
+
+async function fetchFixtures(league,date){
+  const url = `https://api.sportmonks.com/v3/football/fixtures/date/${date}?api_token=${API_KEY}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  const ALLOWED=[271,1659,501,513];
+  return (json.data||[]).filter(f=>ALLOWED.includes(f.league_id)).map(f=>({
+    id: f.id,
+    league: { id:f.league_id, name:f.league?.data?.name||'' },
+    home: f.localTeam.data.name,
+    away: f.visitorTeam.data.name,
+    home_id: f.home_team_id,
+    away_id: f.away_team_id,
+    fixtureDate: f.time.starting_at.date_time
+  }));
+}
+
+async function predict(fixture){
+  const res = await fetch('/api/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fixture,options:{league:fixture.league.id}})});
+  return res.json();
+}
+
+document.getElementById('loadBtn').addEventListener('click',async()=>{
+  const league=document.getElementById('league').value;
+  const date=document.getElementById('date').value;
+  const matchesDiv=document.getElementById('matches');
+  matchesDiv.innerHTML='Loading fixtures...';
+  const fixtures=await fetchFixtures(league,date);
+  matchesDiv.innerHTML='';
+  for(const f of fixtures){
+    const card=document.createElement('div'); card.className='card';
+    card.innerHTML=`<strong>${f.home} vs ${f.away}</strong><div class="meta">${new Date(f.fixtureDate).toLocaleString()}</div>`;
+    const pred=await predict(f);
+    card.innerHTML+=`<div class="prob-bar">
+      <div class="prob" style="width:${Math.round(pred.probabilities.home*100)}%;background:#00ff00"></div>
+      <div class="prob" style="width:${Math.round(pred.probabilities.draw*100)}%;background:#888"></div>
+      <div class="prob" style="width:${Math.round(pred.probabilities.away*100)}%;background:#fff"></div>
+    </div>
+    <div>Recommendation: ${pred.recommendation} (Confidence: ${pred.confidence}%)</div>
+    <div>Used History: ${pred.used_history_count} matches</div>`;
+    matchesDiv.appendChild(card);
+  }
+});
+</script>
+</body>
+</html>
