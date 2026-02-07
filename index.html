@@ -35,26 +35,18 @@ button{background:#00ff00;color:#000;border:none;padding:8px;border-radius:6px;c
 <div id="matches"></div>
 
 <script>
-const API_KEY = prompt("Paste your SportMonks API token (for listing fixtures)");
-
-async function fetchFixtures(league,date){
-  const url = `https://api.sportmonks.com/v3/football/fixtures/date/${date}?api_token=${API_KEY}`;
-  const res = await fetch(url);
-  const json = await res.json();
-  const ALLOWED=[271,1659,501,513];
-  return (json.data||[]).filter(f=>ALLOWED.includes(f.league_id)).map(f=>({
-    id: f.id,
-    league: { id:f.league_id, name:f.league?.data?.name||'' },
-    home: f.localTeam.data.name,
-    away: f.visitorTeam.data.name,
-    home_id: f.home_team_id,
-    away_id: f.away_team_id,
-    fixtureDate: f.time.starting_at.date_time
-  }));
+async function loadFixtures(league,date){
+  const res = await fetch(`/api/fixtures?date=${date}&league=${league}`);
+  const data = await res.json();
+  return data.fixtures || [];
 }
 
 async function predict(fixture){
-  const res = await fetch('/api/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fixture,options:{league:fixture.league.id}})});
+  const res = await fetch('/api/predict',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fixture})
+  });
   return res.json();
 }
 
@@ -63,21 +55,26 @@ document.getElementById('loadBtn').addEventListener('click',async()=>{
   const date=document.getElementById('date').value;
   const matchesDiv=document.getElementById('matches');
   matchesDiv.innerHTML='Loading fixtures...';
-  const fixtures=await fetchFixtures(league,date);
+  const fixtures=await loadFixtures(league,date);
   matchesDiv.innerHTML='';
   for(const f of fixtures){
     const card=document.createElement('div'); card.className='card';
-    card.innerHTML=`<strong>${f.home} vs ${f.away}</strong><div class="meta">${new Date(f.fixtureDate).toLocaleString()}</div>`;
-    const pred=await predict(f);
-    card.innerHTML+=`<div class="prob-bar">
-      <div class="prob" style="width:${Math.round(pred.probabilities.home*100)}%;background:#00ff00"></div>
-      <div class="prob" style="width:${Math.round(pred.probabilities.draw*100)}%;background:#888"></div>
-      <div class="prob" style="width:${Math.round(pred.probabilities.away*100)}%;background:#fff"></div>
-    </div>
-    <div>Recommendation: ${pred.recommendation} (Confidence: ${pred.confidence}%)</div>
-    <div>Used History: ${pred.used_history_count} matches</div>`;
+    card.innerHTML=`<strong>${f.home} vs ${f.away}</strong><div>${new Date(f.fixtureDate).toLocaleString()}</div>`;
     matchesDiv.appendChild(card);
   }
+  // fetch predictions in parallel
+  const predictions = await Promise.all(fixtures.map(f=>predict(f)));
+  fixtures.forEach((f,i)=>{
+    const card=matchesDiv.children[i];
+    const p=predictions[i];
+    card.innerHTML+=`<div class="prob-bar">
+      <div class="prob" style="width:${Math.round(p.probabilities.home*100)}%;background:#00ff00"></div>
+      <div class="prob" style="width:${Math.round(p.probabilities.draw*100)}%;background:#888"></div>
+      <div class="prob" style="width:${Math.round(p.probabilities.away*100)}%;background:#fff"></div>
+    </div>
+    <div>Recommendation: ${p.recommendation} (Confidence: ${p.confidence}%)</div>
+    <div>Used History: ${p.used_history_count}</div>`;
+  });
 });
 </script>
 </body>
